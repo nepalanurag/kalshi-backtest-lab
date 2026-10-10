@@ -33,12 +33,19 @@ rigorous backtesting lab for 15-minute BTC binary options.</p>
 
 <h2>What I built</h2>
 <p>Two portfolio pieces sharing one spine: a <strong>data pipeline</strong>
-that collects settled Kalshi markets, trade prints, and BTC spot into an
-append-only parquet warehouse (schema validation, quality checks, SHA-256
-batch manifests, idempotent loads, scheduled snapshots) — and a
-<strong>backtesting lab</strong> with an event-driven engine, exact Kalshi
+that collects settled Kalshi markets, trade prints, and BTC spot into a
+BigQuery warehouse (130M trades, schema validation, quality checks, idempotent
+loads) with tiered storage — recent data in BigQuery native tables, older
+months archived to Drive as Parquet and queried via BigQuery external tables —
+and a <strong>backtesting lab</strong> with an event-driven engine, exact Kalshi
 fees, five pre-registered strategy arms, and the full multiple-testing
 arsenal.</p>
+
+<h2>Cost guardrails</h2>
+<p>BigQuery runs under a $1 billing budget with a kill-switch, plus
+application-level quotas enforced in code: every query dry-runs first and is
+refused if it would scan over 10GB, with a 100GB/day cap. The 10GB BigQuery
+free storage tier is the trigger for archiving old months to Drive.</p>
 
 <h2>Statistical backbone</h2>
 <table>
