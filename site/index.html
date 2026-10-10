@@ -91,7 +91,11 @@ Dataset: 6,443 settled KXBTC15M markets, August–October 2026.</p>
 <div class="honest">
 <strong>Honest caveats.</strong> Fills are proxied by trade prints, not
 bid/ask quotes — stale prints can create phantom edges, so treat the
-Sharpes above as upper bounds. Arm D (longshot fade) loses consistently:
+Sharpes above as upper bounds. <strong>v2 check (Oct 2026):</strong> a
+staleness penalty (0c to 3c for prints 60s to 300s old, skip beyond that)
+was applied to all 6,443 markets. Zero prints were stale — the penalty
+never triggered. The phantom-edge concern does not materialize in this
+data; v1 DSR results stand. Arm D (longshot fade) loses consistently:
 the favorite-longshot bias is not naively exploitable here. The 7-trade
 paper ledger from the earlier bot (4W/3L, &minus;$2.84) is kept as a
 fixture; the engine reproduces it exactly.
