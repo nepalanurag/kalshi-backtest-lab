@@ -90,3 +90,52 @@ def test_skip_no_liquidity():
         return {"side": "yes", "contracts": 1}
     tr = Engine([m]).run(sig, {}, decision_offset_sec=300.0)
     assert tr == []
+
+
+def test_staleness_penalty():
+    from backtest.engine import (last_print_age_sec, staleness_penalty_cents,
+                                  STALE_PENALTY_SEC, STALE_SKIP_SEC)
+    # Fresh print: no penalty
+    assert staleness_penalty_cents(10.0) == 0.0
+    assert staleness_penalty_cents(STALE_PENALTY_SEC) == 0.0
+    # Mid-range: linear ramp
+    mid = (STALE_PENALTY_SEC + STALE_SKIP_SEC) / 2
+    assert 0.0 < staleness_penalty_cents(mid) < 3.0
+    # At skip threshold: max penalty
+    assert staleness_penalty_cents(STALE_SKIP_SEC) == 3.0
+    assert staleness_penalty_cents(9999.0) == 3.0
+
+
+def test_last_print_age():
+    from backtest.engine import last_print_age_sec
+    trades = [(100.0, 40), (200.0, 45)]
+    assert last_print_age_sec(trades, 50.0) is None
+    assert last_print_age_sec(trades, 200.0) == 0.0
+    assert last_print_age_sec(trades, 260.0) == 60.0
+
+
+def test_engine_skips_stale_print():
+    # Last print at t=100, decision at t=700 -> age 600s > 300s skip.
+    # Engine should skip rather than fill on a phantom price.
+    from backtest.engine import STALE_SKIP_SEC
+    m = MarketState(ticker="T", strike=100.0, close_ts=1000.0,
+                    result="yes", trades=[(100.0, 40)])
+    def sig(m_, ts, ctx):
+        return {"side": "yes", "contracts": 1}
+    tr = Engine([m]).run(sig, {}, decision_offset_sec=300.0)
+    # decision_ts = 700, last print at 100, age = 600 > 300 -> skip
+    assert tr == [], f"Expected skip on stale print, got {len(tr)} trades"
+
+
+def test_engine_applies_staleness_penalty():
+    # Last print at t=580, decision at t=700 -> age 120s.
+    # Penalty = (120-60)/(300-60)*3 = 0.75c -> rounds to 1c worse fill.
+    # Buy YES at 45c + 1c penalty = 46c.
+    m = MarketState(ticker="T", strike=100.0, close_ts=1000.0,
+                    result="yes", trades=[(580.0, 45)])
+    def sig(m_, ts, ctx):
+        return {"side": "yes", "contracts": 1}
+    tr = Engine([m]).run(sig, {}, decision_offset_sec=300.0)
+    assert len(tr) == 1
+    # 45c + 0.75c penalty rounds to 46c
+    assert tr[0].fill.price_cents == 46, tr[0].fill.price_cents

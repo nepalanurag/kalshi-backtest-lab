@@ -64,3 +64,18 @@ Everything else is exploratory.
 - $1/month budget with kill-switch Cloud Function (disables billing at 100%).
 - Arm definitions unchanged (frozen 2026-10-09). Only the compute
   substrate changed, not the methodology.
+
+## v2 fill model (added 2026-10-10, after v1 results)
+
+The v1 fill proxy (last trade print, no staleness adjustment) is the
+weakest link per the 05_results.md honest caveats. v2 adds:
+
+- **Staleness penalty:** If the last print is older than 60s, apply a
+  slippage penalty ramping linearly to 3c at 300s. Models phantom-edge
+  risk (stale print overstates the mispricing).
+- **Skip threshold:** If no print within 300s of decision time, skip the
+  trade entirely rather than fill on an unreliable price.
+
+This is a robustness improvement, not a methodology change to the
+v1 arms. v1 results stand as published; v2 re-runs the same arms with
+the stricter fill model to bound the phantom-edge effect.
