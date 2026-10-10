@@ -1,0 +1,10 @@
+data/raw/
+data/bq_staging/
+data/quota_state.json
+__pycache__/
+*.pyc
+.venv/
+*.pem
+*.json
+!requirements.txt
+.DS_Store

@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kalshi Backtest Lab — market data pipeline + statistical backtesting</title>
+<style>
+  body { font-family: Georgia, serif; max-width: 720px; margin: 3em auto;
+         padding: 0 1.5em; line-height: 1.7; color: #222; }
+  h1 { font-size: 1.8em; margin-bottom: 0.2em; }
+  h2 { font-size: 1.2em; margin-top: 2em; border-bottom: 1px solid #ddd;
+       padding-bottom: 0.3em; }
+  .sub { color: #666; margin-top: 0; }
+  code { background: #f4f4f4; padding: 0.1em 0.4em; border-radius: 3px;
+         font-size: 0.9em; }
+  pre { background: #f4f4f4; padding: 1em; overflow-x: auto;
+        border-radius: 4px; font-size: 0.85em; }
+  table { border-collapse: collapse; width: 100%; margin: 1em 0; }
+  th, td { border: 1px solid #ddd; padding: 0.5em 0.8em; text-align: left;
+           font-size: 0.9em; }
+  th { background: #f8f8f8; }
+  .honest { background: #fff8e1; border-left: 4px solid #f9a825;
+            padding: 1em; margin: 1.5em 0; }
+  footer { margin-top: 3em; color: #999; font-size: 0.85em;
+           border-top: 1px solid #eee; padding-top: 1em; }
+</style>
+</head>
+<body>
+
+<h1>Kalshi Backtest Lab</h1>
+<p class="sub">A production-grade market data pipeline and a statistically
+rigorous backtesting lab for 15-minute BTC binary options.</p>
+
+<h2>What I built</h2>
+<p>Two portfolio pieces sharing one spine: a <strong>data pipeline</strong>
+that collects settled Kalshi markets, trade prints, and BTC spot into an
+append-only parquet warehouse (schema validation, quality checks, SHA-256
+batch manifests, idempotent loads, scheduled snapshots) — and a
+<strong>backtesting lab</strong> with an event-driven engine, exact Kalshi
+fees, five pre-registered strategy arms, and the full multiple-testing
+arsenal.</p>
+
+<h2>Statistical backbone</h2>
+<table>
+<tr><th>Method</th><th>Use</th><th>Gate</th></tr>
+<tr><td>Deflated Sharpe Ratio</td><td>Selection-bias-adjusted Sharpe</td>
+    <td>&gt; 0.95</td></tr>
+<tr><td>PBO via combinatorial CV</td><td>Overfitting probability</td>
+    <td>&lt; 0.2</td></tr>
+<tr><td>Harvey &amp; Liu haircuts</td><td>Multiple-testing correction</td>
+    <td>Bonferroni / Holm / BHY</td></tr>
+<tr><td>Ledoit-Wolf bootstrap</td><td>Pairwise Sharpe comparison</td>
+    <td>Holm across pairs</td></tr>
+<tr><td>Stationary bootstrap</td><td>Sharpe confidence intervals</td>
+    <td>95%</td></tr>
+</table>
+
+<h2>Pre-registration</h2>
+<p>All five strategy arms and the primary comparison (Arm B vs Arm A) were
+frozen in <code>METHODOLOGY.md</code> before any backtest ran. Timestamp
+discipline is enforced by the engine: signals see only data strictly
+before the decision time.</p>
+
+<h2>Results (October 2026)</h2>
+<p>Hybrid analysis: BigQuery aggregates 130M trade prints into per-market
+features; local Python runs the pricing model and statistical tests.
+Dataset: 6,443 settled KXBTC15M markets, August–October 2026.</p>
+<table>
+<tr><th>Arm</th><th>Trades</th><th>Sharpe</th><th>DSR</th><th>PnL</th></tr>
+<tr><td>A (2c threshold)</td><td>5,592</td><td>1.15</td><td>1.00 ✓</td>
+    <td>+$6,288</td></tr>
+<tr><td>B (3c threshold)</td><td>5,456</td><td>1.17</td><td>1.00 ✓</td>
+    <td>+$6,266</td></tr>
+<tr><td>C (5c threshold)</td><td>5,253</td><td>1.22</td><td>1.00 ✓</td>
+    <td>+$6,218</td></tr>
+<tr><td>D (longshot fade)</td><td>6,443</td><td>-1.00</td><td>0.00 ✗</td>
+    <td>-$6,419</td></tr>
+<tr><td>E (vol-adaptive)</td><td>5,583</td><td>1.15</td><td>1.00 ✓</td>
+    <td>+$6,288</td></tr>
+</table>
+<p>Primary comparison (B vs A, pre-specified): no significant difference
+(p<sub>Holm</sub> = 0.54). PBO = 0.00. All Sharpes carry HAC 95% CIs.</p>
+
+<div class="honest">
+<strong>Honest caveats.</strong> Fills are proxied by trade prints, not
+bid/ask quotes — stale prints can create phantom edges, so treat the
+Sharpes above as upper bounds. Arm D (longshot fade) loses consistently:
+the favorite-longshot bias is not naively exploitable here. The 7-trade
+paper ledger from the earlier bot (4W/3L, &minus;$2.84) is kept as a
+fixture; the engine reproduces it exactly.
+</div>
+
+<h2>Venue mechanics modeled exactly</h2>
+<p>Taker fee = <code>ceil(0.07 &times; contracts &times; P &times;
+(1&minus;P))</code> per order, verified against Kalshi's published table.
+Fills proxied by trade prints (historical quotes are unavailable via the
+public API) — documented as a limitation, not hidden.</p>
+
+<h2>Code</h2>
+<p><a href="https://github.com/nepalanurag/kalshi-backtest-lab">github.com/nepalanurag/kalshi-backtest-lab</a></p>
+
+<footer>Built October 2026. No live trading. No ML in v1. Reproducibility
+over UI.</footer>
+
+</body>
+</html>
