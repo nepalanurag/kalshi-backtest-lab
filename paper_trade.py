@@ -69,14 +69,21 @@ def get_active_market(client: KalshiClient):
 def get_recent_trades(client: KalshiClient, ticker: str, limit: int = 100):
     """Get recent trades for a market (for fill price)."""
     try:
-        trades = client.get_trades(ticker=ticker, limit=limit)
+        # Public endpoint: GET /trade-api/v2/markets/trades?ticker=...&limit=...
+        from kalshi_btc15m_bot.kalshi_client import TRADE_API_PREFIX
+        data = client._request("GET", f"{TRADE_API_PREFIX}/markets/trades",
+                               params={"ticker": ticker, "limit": limit})
+        trades = data.get("trades", []) if isinstance(data, dict) else []
         # Returns list of (ts, yes_price_cents)
         result = []
         for t in trades:
-            ts = t.get("ts") or t.get("created_time")
+            ts = t.get("created_time")
             if isinstance(ts, str):
                 ts = datetime.fromisoformat(ts.replace("Z", "+00:00")).timestamp()
-            px = t.get("yes_price") or t.get("price")
+            # API returns yes_price_dollars as a decimal string (e.g. "0.9690")
+            px = t.get("yes_price")
+            if px is None and t.get("yes_price_dollars") is not None:
+                px = int(round(float(t["yes_price_dollars"]) * 100))
             if ts and px is not None:
                 result.append((float(ts), int(px)))
         return sorted(result)
@@ -88,11 +95,17 @@ def get_recent_trades(client: KalshiClient, ticker: str, limit: int = 100):
 def get_spot_data(feed: CoinbasePriceFeed, lookback_sec: float = 1200.0):
     """Get recent BTC spot prices."""
     try:
-        # Get recent candles
-        candles = feed.get_candles(limit=30)  # 30 min of 60s candles
+        # get_candles takes keyword args: start, end, granularity_seconds
+        # Candle objects have .ts (datetime) and .close attributes
+        from datetime import timedelta
+        now_dt = datetime.now(timezone.utc)
+        start_dt = now_dt - timedelta(seconds=lookback_sec)
+        candles = feed.get_candles(start=start_dt, end=now_dt,
+                                   granularity_seconds=60)
         now = time.time()
         cutoff = now - lookback_sec
-        return [(c["ts"], c["close"]) for c in candles if c["ts"] >= cutoff]
+        return [(c.ts.timestamp(), c.close) for c in candles
+                if c.ts.timestamp() >= cutoff]
     except Exception as e:
         log(f"Failed to get spot: {e}")
         return []
@@ -105,7 +118,7 @@ def evaluate_arms(market, close_ts, trades, spot):
 
     m = MarketState(
         ticker=market["ticker"],
-        strike=float(market.get("strike_price", 0)),
+        strike=float(market.get("floor_strike") or 0),
         close_ts=close_ts,
         result=None,  # unknown yet
         trades=trades,
