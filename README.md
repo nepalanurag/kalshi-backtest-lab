@@ -63,3 +63,28 @@ site/         portfolio page
 - No ML in v1. Rule-based arms with fixed, pre-registered parameters.
 - Fills are proxied by trade prints (historical quotes unavailable
   via the public API). Documented as a limitation.
+
+## Tiered storage
+
+**Architecture** (agreed 2026-10-10):
+- **Recent data** stays in BigQuery native tables for fast queries
+- **Older data** gets archived to Google Drive as Parquet, queried via BigQuery external tables
+- **Trigger:** when BigQuery storage exceeds 10GB (free tier limit)
+
+**Usage:**
+```bash
+# Check current storage vs 10GB limit
+GCP_PROJECT=your-project python -m pipeline.archive --check
+
+# Archive a month (exports to local Parquet)
+GCP_PROJECT=your-project python -m pipeline.archive --archive 2026-08
+
+# After uploading Parquet to Drive, create BQ external table
+GCP_PROJECT=your-project python -m pipeline.archive --external trades 2026-08 <drive_file_id>
+
+# After verifying the external table, delete from BQ to free storage
+GCP_PROJECT=your-project python -m pipeline.archive --delete trades 2026-08
+```
+
+All BigQuery operations go through `QuotaGuard` (10GB/query, 100GB/day, dry-run first).
+The Drive upload step is manual via browser (Drive CLI cannot access workspace files).

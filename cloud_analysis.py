@@ -20,6 +20,8 @@ from pipeline.quota import QuotaGuard, QuotaExceeded
 from backtest.strategies import ARMS, PRIMARY_COMPARISON, CONTRACTS
 from backtest.pricing import fair_yes_prob, realized_sigma_per_sec, capped_drift
 from backtest.fees import taker_fee_cents
+from backtest.engine import (staleness_penalty_cents, STALE_SKIP_SEC,
+                              STALE_PENALTY_SEC, MAX_SLIPPAGE_CENTS)
 from stats.sharpe import sharpe, sharpe_ci, lag1_autocorr, t_stat
 from stats.dsr import deflated_sharpe
 from stats.pbo import pbo
@@ -47,19 +49,20 @@ def fetch_market_features(qg: QuotaGuard) -> pd.DataFrame:
              UNIX_SECONDS(TIMESTAMP(close_time)) AS close_ts,
              result,
              UNIX_SECONDS(TIMESTAMP(close_time)) - 300 AS decision_ts
-      FROM `{project}.kalshi.markets`
+      FROM `{PROJECT}.kalshi.markets`
       WHERE result IN ('yes', 'no')
     ),
     ranked AS (
       SELECT d.ticker, d.strike_price, d.close_ts, d.result, d.decision_ts,
-             t.yes_price,
+             t.yes_price, t.ts AS trade_ts,
              ROW_NUMBER() OVER (PARTITION BY d.ticker ORDER BY t.ts DESC) AS rn
       FROM decisions d
-      JOIN `{project}.kalshi.trades` t
+      JOIN `{PROJECT}.kalshi.trades` t
         ON t.ticker = d.ticker AND t.ts <= d.decision_ts
     )
     SELECT ticker, strike_price, close_ts, result, decision_ts,
-           CAST(yes_price AS INT64) AS fill_px
+           CAST(yes_price AS INT64) AS fill_px,
+           CAST(trade_ts AS INT64) AS print_ts
     FROM ranked WHERE rn = 1
     """
     log("Fetching market features from BigQuery...")
@@ -72,7 +75,7 @@ def fetch_market_features(qg: QuotaGuard) -> pd.DataFrame:
 def load_spot(qg: QuotaGuard) -> list:
     rows = list(qg.run_query(
         "SELECT CAST(ts AS INT64) AS ts, close AS px "
-        f"FROM `{project}.kalshi.spot_minute` ORDER BY ts"))
+        f"FROM `{PROJECT}.kalshi.spot_minute` ORDER BY ts"))
     return sorted((r["ts"], float(r["px"])) for r in rows)
 
 
@@ -125,6 +128,16 @@ def run_arm(arm_name: str, markets: pd.DataFrame, spot: list):
             side = best[0]
 
         price_cents = fill_px if side == "yes" else 100 - fill_px
+        # v2: staleness penalty. If the print is too old, skip.
+        # Otherwise the taker gets a worse fill.
+        print_ts = m.get("print_ts")
+        if print_ts is not None and not (isinstance(print_ts, float) and pd.isna(print_ts)):
+            age_sec = decision_ts - float(print_ts)
+            if age_sec >= STALE_SKIP_SEC:
+                continue  # too stale; phantom edge risk
+            penalty = staleness_penalty_cents(age_sec)
+            price_cents = int(round(price_cents + penalty))
+            price_cents = max(1, min(99, price_cents))
         fee = taker_fee_cents(CONTRACTS, price_cents)
         won = (m["result"] == side)
         gross = CONTRACTS * 100 if won else 0
@@ -273,9 +286,9 @@ def main():
     # ---- 01 ----
     r = list(qg.run_query(
         "SELECT COUNT(*) n, MIN(close_time) mn, MAX(close_time) mx "
-        f"FROM `{project}.kalshi.markets`"))
+        f"FROM `{PROJECT}.kalshi.markets`"))
     r2 = list(qg.run_query(
-        f"SELECT COUNT(*) n FROM `{project}.kalshi.trades`"))
+        f"SELECT COUNT(*) n FROM `{PROJECT}.kalshi.trades`"))
     open(os.path.join(REPORTS, "01_data_audit.md"), "w").write("\n".join([
         "# 01 — Data Audit\n",
         f"Markets: {r[0]['n']:,} ({r[0]['mn']} to {r[0]['mx']})",
