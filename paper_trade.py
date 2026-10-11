@@ -138,7 +138,20 @@ def evaluate_arms(market, close_ts, trades, spot):
 
 
 def log_signals(market, close_ts, signals):
-    """Append signals to the JSONL log."""
+    """Append signals to the JSONL log. Skips tickers already logged."""
+    # Dedup: same market can hit the 120s window twice on a 120s cron
+    logged_tickers = set()
+    if os.path.exists(LOG_FILE):
+        with open(LOG_FILE) as f:
+            for line in f:
+                try:
+                    logged_tickers.add(json.loads(line).get("ticker"))
+                except (json.JSONDecodeError, AttributeError):
+                    pass
+    if market["ticker"] in logged_tickers:
+        log(f"Already logged {market['ticker']}, skipping duplicates")
+        return
+
     now = datetime.now(timezone.utc).isoformat()
     with open(LOG_FILE, "a") as f:
         for arm, sig in signals.items():
@@ -175,7 +188,9 @@ def check_outcomes(client: KalshiClient):
         if r["status"] == "pending" and r["close_ts"] < now:
             # Fetch market result
             try:
-                m = client.get_market(r["ticker"])
+                resp = client.get_market(r["ticker"])
+                # get_market returns {"market": {...}}
+                m = resp.get("market", resp) if isinstance(resp, dict) else {}
                 result = m.get("result")
                 if result in ("yes", "no"):
                     r["status"] = "settled"
@@ -241,6 +256,9 @@ def main():
 
     if not trades:
         log("No trades, skipping")
+        return
+    if len(spot) < 10:
+        log(f"Insufficient spot data ({len(spot)} points, need 10+), skipping")
         return
 
     # Evaluate
